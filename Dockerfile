@@ -12,16 +12,20 @@
 # Alpine variant for smaller image size
 FROM amazoncorretto:17-alpine
 
-# Install AWS CLI for S3 operations
-# Required for uploading generated files to S3
-RUN apk add --no-cache aws-cli
+# Install AWS CLI and curl for S3 operations and downloading JAR
+# Required for uploading generated files to S3 and downloading JAR from remote URL
+RUN apk add --no-cache aws-cli curl
 
 # Set working directory for the application
 WORKDIR /app
 
-# Copy the Synthea JAR file into the container
-# Ensure synthea-with-dependencies.jar is in the same directory as this Dockerfile
-COPY synthea-with-dependencies.jar /app/synthea-with-dependencies.jar
+# Download the Synthea JAR file from remote URL
+# Set JAR_URL as a build argument to specify the download location
+# Example: docker build --build-arg JAR_URL=https://example.com/synthea.jar -t java-processor .
+ARG JAR_URL=https://github.com/synthetichealth/synthea/releases/download/master-branch-latest/synthea-with-dependencies.jar
+RUN echo "Downloading JAR from: $JAR_URL" && \
+    curl -L -o /app/synthea-with-dependencies.jar "$JAR_URL" && \
+    echo "JAR downloaded successfully"
 
 # Create output directory where Synthea will write generated files
 # This directory is synced to S3 after processing

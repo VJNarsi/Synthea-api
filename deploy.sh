@@ -62,9 +62,16 @@ cd ..
 # STEP 2: Build Docker Image
 # =============================================================================
 # Packages the Synthea JAR, entrypoint script, and dependencies into a container
+# The JAR is downloaded from a remote URL during the build process
 echo ""
 echo "Step 2: Building Docker image..."
-docker build -t java-processor .
+
+# Optional: Set custom JAR URL via environment variable
+# Default: Downloads from Synthea's GitHub releases
+JAR_URL=${JAR_URL:-https://github.com/synthetichealth/synthea/releases/download/master-branch-latest/synthea-with-dependencies.jar}
+
+echo "JAR will be downloaded from: $JAR_URL"
+docker build --build-arg JAR_URL="$JAR_URL" -t java-processor .
 
 # =============================================================================
 # STEP 3: Push Image to ECR

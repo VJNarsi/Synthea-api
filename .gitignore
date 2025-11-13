@@ -28,8 +28,8 @@ Thumbs.db
 # AWS
 .aws/
 
-# JAR files (optional - uncomment if you don't want to commit the JAR)
-# *.jar
+# JAR files - not needed since we download from remote URL
+*.jar
 
 # Docker
 .dockerignore

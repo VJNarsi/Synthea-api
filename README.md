@@ -20,8 +20,17 @@ chmod +x deploy.sh
 
 This script will:
 - Deploy the CDK stack (VPC, ECS cluster, ECR repo, S3 bucket, IAM roles)
-- Build the Docker image with synthea-with-dependencies.jar
+- Build the Docker image (downloads synthea-with-dependencies.jar from remote URL)
 - Push the image to ECR
+
+**Custom JAR URL:**
+```bash
+# Use a custom JAR location
+JAR_URL=https://your-domain.com/path/to/synthea.jar ./deploy.sh
+
+# Or build Docker image separately with custom URL
+docker build --build-arg JAR_URL=https://your-domain.com/synthea.jar -t java-processor .
+```
 
 ### 2. Run Tasks with Parameters
 
