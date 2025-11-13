@@ -1,0 +1,28 @@
+# Ignore JAR files since we download from remote URL
+*.jar
+
+# Ignore git files
+.git/
+.gitignore
+
+# Ignore CDK files
+cdk/
+cdk.out/
+
+# Ignore Python files
+__pycache__/
+*.pyc
+.venv/
+
+# Ignore documentation
+README.md
+
+# Ignore deployment scripts
+deploy.sh
+run-task.sh
+trigger-via-api.py
+
+# Ignore IAM policy files
+iam-task-role-policy.json
+task-definition.json
+trust-policy.json

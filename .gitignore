@@ -32,7 +32,7 @@ Thumbs.db
 *.jar
 
 # Docker
-.dockerignore
+# .dockerignore is needed in the repo
 
 # Logs
 *.log
