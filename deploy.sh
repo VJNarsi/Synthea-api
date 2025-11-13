@@ -54,7 +54,29 @@ pip install -r requirements.txt
 cdk bootstrap aws://$ACCOUNT_ID/$REGION
 
 # Deploy the stack without manual approval prompts
-cdk deploy --require-approval never
+# Optional: Specify VPC_ID and/or S3_BUCKET_NAME environment variables
+# Examples:
+#   VPC_ID=vpc-xxxxx ./deploy.sh
+#   S3_BUCKET_NAME=my-bucket ./deploy.sh
+#   VPC_ID=vpc-xxxxx S3_BUCKET_NAME=my-bucket ./deploy.sh
+
+CDK_ARGS="--require-approval never"
+
+if [ -n "$VPC_ID" ]; then
+    echo "Using VPC: $VPC_ID"
+    CDK_ARGS="$CDK_ARGS -c vpc_id=$VPC_ID"
+else
+    echo "Using default VPC"
+fi
+
+if [ -n "$S3_BUCKET_NAME" ]; then
+    echo "Using existing S3 bucket: $S3_BUCKET_NAME"
+    CDK_ARGS="$CDK_ARGS -c s3_bucket_name=$S3_BUCKET_NAME"
+else
+    echo "Will create new S3 bucket: synthea-output-$ACCOUNT_ID"
+fi
+
+cdk deploy $CDK_ARGS
 
 cd ..
 
@@ -105,6 +127,10 @@ echo "  python3 trigger-via-api.py -p 100"
 echo ""
 echo "Resources created:"
 echo "  - ECS Cluster: java-processor-cluster"
-echo "  - S3 Bucket: synthea-output-$ACCOUNT_ID"
+if [ -n "$S3_BUCKET_NAME" ]; then
+    echo "  - S3 Bucket: $S3_BUCKET_NAME (existing)"
+else
+    echo "  - S3 Bucket: synthea-output-$ACCOUNT_ID (new)"
+fi
 echo "  - ECR Repository: java-processor"
 echo "  - CloudWatch Logs: /ecs/java-processor"

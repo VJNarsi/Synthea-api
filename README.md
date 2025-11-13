@@ -23,10 +23,19 @@ This script will:
 - Build the Docker image (downloads synthea-with-dependencies.jar from remote URL)
 - Push the image to ECR
 
-**Custom JAR URL:**
+**Custom Configuration:**
 ```bash
 # Use a custom JAR location
 JAR_URL=https://your-domain.com/path/to/synthea.jar ./deploy.sh
+
+# Use a specific VPC instead of default
+VPC_ID=vpc-xxxxx ./deploy.sh
+
+# Use an existing S3 bucket instead of creating new one
+S3_BUCKET_NAME=my-existing-bucket ./deploy.sh
+
+# Combine multiple options
+VPC_ID=vpc-xxxxx S3_BUCKET_NAME=my-bucket JAR_URL=https://example.com/synthea.jar ./deploy.sh
 
 # Or build Docker image separately with custom URL
 docker build --build-arg JAR_URL=https://your-domain.com/synthea.jar -t java-processor .

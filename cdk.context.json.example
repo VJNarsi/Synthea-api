@@ -1,0 +1,4 @@
+{
+  "vpc_id": "vpc-xxxxx",
+  "s3_bucket_name": "my-existing-bucket"
+}
