@@ -1,5 +1,5 @@
 # =============================================================================
-# Dockerfile for Synthea Java Application on ECS Fargate
+# Dockerfile for Synthea Java Application on AWS Batch
 # =============================================================================
 # This container runs the Synthea patient data generator and uploads
 # output files to S3.

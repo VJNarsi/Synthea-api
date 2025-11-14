@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-ECS Task Trigger Script
+AWS Batch Job Submission Script
 
-This script programmatically triggers an ECS Fargate task with runtime parameters.
-It automatically discovers VPC configuration and passes parameters to the Synthea container.
+This script programmatically submits an AWS Batch job with runtime parameters.
+It passes parameters to the Synthea container running in AWS Batch.
 
 Usage:
     python3 trigger-via-api.py -p 100
@@ -12,85 +12,40 @@ Usage:
 Requirements:
     - boto3 (pip install boto3)
     - AWS credentials configured (aws configure)
-    - ECS cluster and task definition deployed
+    - Batch job queue and job definition deployed
 """
 import boto3
 import sys
+import time
 
 
-def get_vpc_config():
+def submit_batch_job(params):
     """
-    Discover VPC configuration from the default VPC.
-    
-    Returns:
-        tuple: (subnet_id, security_group_id)
-        
-    Note:
-        - Uses the first available subnet in the default VPC
-        - Looks for security group with 'TaskSecurityGroup' in the name
-        - Modify this function if using a custom VPC
-    """
-    ec2 = boto3.client('ec2')
-    
-    # Find the default VPC
-    vpcs = ec2.describe_vpcs(Filters=[{'Name': 'isDefault', 'Values': ['true']}])
-    vpc_id = vpcs['Vpcs'][0]['VpcId']
-    
-    # Get the first subnet in the VPC
-    # For production, consider selecting specific availability zones
-    subnets = ec2.describe_subnets(Filters=[{'Name': 'vpc-id', 'Values': [vpc_id]}])
-    subnet_id = subnets['Subnets'][0]['SubnetId']
-    
-    # Find the security group created by CDK stack
-    # The security group name contains 'TaskSecurityGroup'
-    sgs = ec2.describe_security_groups(
-        Filters=[
-            {'Name': 'group-name', 'Values': ['*TaskSecurityGroup*']},
-            {'Name': 'vpc-id', 'Values': [vpc_id]}
-        ]
-    )
-    sg_id = sgs['SecurityGroups'][0]['GroupId']
-    
-    return subnet_id, sg_id
-
-
-def run_ecs_task(params):
-    """
-    Trigger an ECS Fargate task with runtime parameters.
+    Submit an AWS Batch job with runtime parameters.
     
     Args:
         params (list): Command-line parameters to pass to the Java application
         
     Returns:
-        dict: ECS run_task API response containing task details
+        dict: Batch submit_job API response containing job details
         
     Note:
         - Parameters are passed via containerOverrides.command
-        - This allows different parameters for each task execution
-        - Task runs asynchronously; use ECS console to monitor progress
+        - This allows different parameters for each job execution
+        - Job runs asynchronously; use Batch console to monitor progress
     """
-    ecs = boto3.client('ecs')
-    subnet_id, sg_id = get_vpc_config()
+    batch = boto3.client('batch')
     
-    # Launch the ECS task with Fargate
-    response = ecs.run_task(
-        cluster='java-processor-cluster',  # Must match CDK stack cluster name
-        taskDefinition='java-processor-task',  # Must match CDK stack task definition
-        launchType='FARGATE',  # Serverless compute
-        networkConfiguration={
-            'awsvpcConfiguration': {
-                'subnets': [subnet_id],  # Where to run the task
-                'securityGroups': [sg_id],  # Network access rules
-                'assignPublicIp': 'ENABLED'  # Required for ECR and S3 access
-            }
-        },
-        overrides={
-            'containerOverrides': [
-                {
-                    'name': 'java-processor',  # Must match container name in task definition
-                    'command': params  # Runtime parameters passed to entrypoint.sh
-                }
-            ]
+    # Generate a unique job name with timestamp
+    job_name = f"synthea-job-{int(time.time())}"
+    
+    # Submit the job to AWS Batch
+    response = batch.submit_job(
+        jobName=job_name,
+        jobQueue='java-processor-queue',  # Must match CDK stack job queue name
+        jobDefinition='java-processor-job',  # Must match CDK stack job definition
+        containerOverrides={
+            'command': params  # Runtime parameters passed to entrypoint.sh
         }
     )
     
@@ -112,14 +67,18 @@ if __name__ == '__main__':
         print("  -g <gender>  : Generate only M or F patients")
         sys.exit(1)
     
-    # Trigger the ECS task
-    print(f"Triggering ECS task with parameters: {params}")
-    response = run_ecs_task(params)
+    # Submit the Batch job
+    print(f"Submitting Batch job with parameters: {params}")
+    response = submit_batch_job(params)
     
-    # Extract and display the task ARN
-    task_arn = response['tasks'][0]['taskArn']
-    print(f"Task started: {task_arn}")
-    print("\nMonitor task progress:")
-    print("  - AWS Console: ECS > Clusters > java-processor-cluster")
-    print("  - CloudWatch Logs: /ecs/java-processor")
+    # Extract and display the job ID
+    job_id = response['jobId']
+    job_name = response['jobName']
+    print(f"Job submitted: {job_name}")
+    print(f"Job ID: {job_id}")
+    print("\nMonitor job progress:")
+    print("  - AWS Console: Batch > Jobs > java-processor-queue")
+    print("  - CloudWatch Logs: /aws/batch/java-processor")
     print("  - S3 Output: Check your synthea-output-* bucket")
+    print(f"\nCheck job status:")
+    print(f"  aws batch describe-jobs --jobs {job_id}")

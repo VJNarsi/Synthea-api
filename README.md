@@ -1,6 +1,8 @@
-# ECS Java Processor (Synthea)
+# AWS Batch Java Processor (Synthea)
 
-This setup runs the Synthea Java application in ECS Fargate that accepts parameters and uploads output to S3.
+This setup runs the Synthea Java application in AWS Batch (Fargate) that accepts parameters and uploads output to S3.
+
+> **Note**: This project was migrated from ECS to AWS Batch. See [MIGRATION.md](MIGRATION.md) for details.
 
 ## Prerequisites
 
@@ -19,7 +21,7 @@ chmod +x deploy.sh
 ```
 
 This script will:
-- Deploy the CDK stack (VPC, ECS cluster, ECR repo, S3 bucket, IAM roles)
+- Deploy the CDK stack (VPC, Batch compute environment, job queue, job definition, ECR repo, S3 bucket, IAM roles)
 - Build the Docker image (downloads synthea-with-dependencies.jar from remote URL)
 - Push the image to ECR
 
@@ -41,11 +43,11 @@ VPC_ID=vpc-xxxxx S3_BUCKET_NAME=my-bucket JAR_URL=https://example.com/synthea.ja
 docker build --build-arg JAR_URL=https://your-domain.com/synthea.jar -t java-processor .
 ```
 
-### 2. Run Tasks with Parameters
+### 2. Submit Jobs with Parameters
 
 Using bash:
 ```bash
-./run-task.sh "-p 100"
+./run-job.sh "-p 100"
 ```
 
 Using Python:
@@ -61,14 +63,14 @@ python3 trigger-via-api.py -p 100
 
 ## How It Works
 
-1. ECS task starts with your parameters
+1. Batch job starts with your parameters
 2. Java application runs: `java -jar file.jar <params>`
 3. Application writes output to `/app/output`
 4. Script uploads all files from `/app/output` to S3
-5. Task completes
+5. Job completes
 
 ## Notes
 
-- The `synthea-with-dependencies.jar` should be in the same directory as the Dockerfile before building
-- The Java app should write output files to `/app/output` directory
-- Modify CPU/memory in task-definition.json based on your needs
+- The JAR is downloaded automatically during Docker build from GitHub releases
+- The Java app writes output files to `/app/output` directory
+- Modify CPU/memory in the CDK stack (cdk/stacks/batch_java_processor_stack.py) based on your needs

@@ -19,7 +19,7 @@ Environment Variables:
 """
 import os
 import aws_cdk as cdk
-from stacks.ecs_java_processor_stack import EcsJavaProcessorStack
+from stacks.batch_java_processor_stack import BatchJavaProcessorStack
 
 # Initialize the CDK app
 app = cdk.App()
@@ -29,14 +29,14 @@ app = cdk.App()
 vpc_id = app.node.try_get_context("vpc_id") or os.environ.get("VPC_ID")
 s3_bucket_name = app.node.try_get_context("s3_bucket_name") or os.environ.get("S3_BUCKET_NAME")
 
-# Create the ECS Java Processor stack
-# This will create all resources defined in EcsJavaProcessorStack
-EcsJavaProcessorStack(
+# Create the Batch Java Processor stack
+# This will create all resources defined in BatchJavaProcessorStack
+BatchJavaProcessorStack(
     app,
-    "EcsJavaProcessorStack",
+    "BatchJavaProcessorStack",
     vpc_id=vpc_id,
     s3_bucket_name=s3_bucket_name,
-    description="ECS Fargate task for running Synthea Java application with S3 output"
+    description="AWS Batch job for running Synthea Java application with S3 output"
 )
 
 # Synthesize the CloudFormation template

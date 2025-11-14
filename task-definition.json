@@ -1,4 +1,5 @@
 {
+  "_comment": "LEGACY FILE - This ECS task definition is no longer used. Infrastructure is now managed by CDK (see cdk/stacks/batch_java_processor_stack.py). Kept for reference only.",
   "family": "java-processor-task",
   "networkMode": "awsvpc",
   "requiresCompatibilities": ["FARGATE"],

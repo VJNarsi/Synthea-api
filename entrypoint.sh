@@ -1,12 +1,12 @@
 #!/bin/sh
 # =============================================================================
-# Entrypoint script for Synthea ECS container
+# Entrypoint script for Synthea Batch container
 # =============================================================================
 # This script:
 # 1. Runs the Synthea JAR with runtime parameters
 # 2. Uploads generated output files to S3
 #
-# Environment Variables (set by ECS task definition):
+# Environment Variables (set by Batch job definition):
 #   S3_BUCKET - Target S3 bucket name (required)
 #   S3_PREFIX - S3 key prefix for organizing files (optional, defaults to "output")
 #

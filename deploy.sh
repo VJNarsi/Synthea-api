@@ -3,7 +3,7 @@
 # One-Command Deployment Script
 # =============================================================================
 # This script automates the complete deployment process:
-# 1. Deploys AWS infrastructure using CDK (VPC, ECS, ECR, S3, IAM)
+# 1. Deploys AWS infrastructure using CDK (VPC, Batch, ECR, S3, IAM)
 # 2. Builds the Docker image with Synthea JAR
 # 3. Pushes the image to ECR
 #
@@ -12,7 +12,6 @@
 #   - Docker installed and running
 #   - Python 3.7+ installed
 #   - Node.js installed (for CDK CLI)
-#   - synthea-with-dependencies.jar in the current directory
 #
 # Usage:
 #   chmod +x deploy.sh
@@ -21,7 +20,7 @@
 
 set -e  # Exit on any error
 
-echo "=== ECS Java Processor Deployment ==="
+echo "=== AWS Batch Java Processor Deployment ==="
 
 # =============================================================================
 # Get AWS Configuration
@@ -37,7 +36,7 @@ echo "Region: $REGION"
 # =============================================================================
 # STEP 1: Deploy CDK Infrastructure Stack
 # =============================================================================
-# Creates: ECS cluster, ECR repository, S3 bucket, IAM roles, security groups
+# Creates: Batch compute environment, job queue, job definition, ECR repository, S3 bucket, IAM roles, security groups
 echo ""
 echo "Step 1: Deploying CDK stack..."
 cd cdk
@@ -119,18 +118,19 @@ docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/java-processor:latest
 echo ""
 echo "=== Deployment Complete ==="
 echo ""
-echo "To run a task with parameters:"
-echo "  ./run-task.sh \"-p 100\""
+echo "To submit a job with parameters:"
+echo "  ./run-job.sh \"-p 100\""
 echo ""
 echo "Or use Python:"
 echo "  python3 trigger-via-api.py -p 100"
 echo ""
 echo "Resources created:"
-echo "  - ECS Cluster: java-processor-cluster"
+echo "  - Batch Job Queue: java-processor-queue"
+echo "  - Batch Job Definition: java-processor-job"
 if [ -n "$S3_BUCKET_NAME" ]; then
     echo "  - S3 Bucket: $S3_BUCKET_NAME (existing)"
 else
     echo "  - S3 Bucket: synthea-output-$ACCOUNT_ID (new)"
 fi
 echo "  - ECR Repository: java-processor"
-echo "  - CloudWatch Logs: /ecs/java-processor"
+echo "  - CloudWatch Logs: /aws/batch/java-processor"

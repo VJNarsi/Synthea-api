@@ -1,26 +1,28 @@
 from aws_cdk import (
     Stack,
     aws_ec2 as ec2,
+    aws_batch as batch,
     aws_ecs as ecs,
     aws_ecr as ecr,
     aws_iam as iam,
     aws_s3 as s3,
     aws_logs as logs,
     RemovalPolicy,
-    Duration
+    CfnOutput
 )
 from constructs import Construct
 
-class EcsJavaProcessorStack(Stack):
+class BatchJavaProcessorStack(Stack):
     """
-    CDK Stack for deploying a Synthea Java processor on ECS Fargate.
+    CDK Stack for deploying a Synthea Java processor on AWS Batch.
     
     This stack creates:
     - S3 bucket for storing output files
-    - ECS Fargate cluster and task definition
+    - AWS Batch compute environment (Fargate)
+    - AWS Batch job queue and job definition
     - ECR repository for Docker images
     - IAM roles with appropriate permissions
-    - CloudWatch log group for task logs
+    - CloudWatch log group for job logs
     - Security group for network access
     
     Parameters:
@@ -61,7 +63,7 @@ class EcsJavaProcessorStack(Stack):
             )
 
         # ============================================================
-        # VPC - Network configuration for ECS tasks
+        # VPC - Network configuration for Batch jobs
         # ============================================================
         # Use provided VPC ID or fall back to default VPC
         # VPC can be specified via context variable or parameter
@@ -71,15 +73,6 @@ class EcsJavaProcessorStack(Stack):
         else:
             # Fall back to default VPC
             vpc = ec2.Vpc.from_lookup(self, "VPC", is_default=True)
-        
-        # ============================================================
-        # ECS CLUSTER - Logical grouping of ECS tasks
-        # ============================================================
-        cluster = ecs.Cluster(
-            self, "JavaProcessorCluster",
-            cluster_name="java-processor-cluster",
-            vpc=vpc
-        )
 
         # ============================================================
         # ECR REPOSITORY - Stores Docker images
@@ -93,24 +86,36 @@ class EcsJavaProcessorStack(Stack):
         )
 
         # ============================================================
-        # IAM TASK ROLE - Permissions for the running container
+        # SECURITY GROUP - Network firewall rules
+        # ============================================================
+        # Allows all outbound traffic (needed for S3 and ECR access)
+        # No inbound rules needed since this is a batch processing job
+        security_group = ec2.SecurityGroup(
+            self, "BatchSecurityGroup",
+            vpc=vpc,
+            description="Security group for Java processor Batch jobs",
+            allow_all_outbound=True  # Required for S3, ECR, and CloudWatch access
+        )
+
+        # ============================================================
+        # IAM JOB ROLE - Permissions for the running container
         # ============================================================
         # This role is used by the container to access AWS services (S3)
         # The container assumes this role at runtime
-        task_role = iam.Role(
-            self, "TaskRole",
+        job_role = iam.Role(
+            self, "JobRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
-            description="Role for ECS task to access S3"
+            description="Role for Batch job to access S3"
         )
         
         # Grant read/write permissions to the output bucket
-        output_bucket.grant_read_write(task_role)
+        output_bucket.grant_read_write(job_role)
 
         # ============================================================
-        # IAM EXECUTION ROLE - Permissions for ECS to manage the task
+        # IAM EXECUTION ROLE - Permissions for Batch to manage the job
         # ============================================================
-        # This role is used by ECS to pull images from ECR and write logs
-        # Different from task_role which is used by the container itself
+        # This role is used by Batch to pull images from ECR and write logs
+        # Different from job_role which is used by the container itself
         execution_role = iam.Role(
             self, "ExecutionRole",
             assumed_by=iam.ServicePrincipal("ecs-tasks.amazonaws.com"),
@@ -122,72 +127,85 @@ class EcsJavaProcessorStack(Stack):
         )
 
         # ============================================================
-        # TASK DEFINITION - Blueprint for running the container
-        # ============================================================
-        # Defines CPU, memory, and roles for Fargate tasks
-        # Adjust cpu and memory_limit_mib based on Synthea workload requirements
-        task_definition = ecs.FargateTaskDefinition(
-            self, "TaskDefinition",
-            family="java-processor-task",
-            cpu=1024,  # 1 vCPU (256, 512, 1024, 2048, 4096)
-            memory_limit_mib=2048,  # 2 GB RAM (512 to 30720 in increments)
-            task_role=task_role,  # Role for container to access AWS services
-            execution_role=execution_role  # Role for ECS to manage the task
-        )
-
-        # ============================================================
         # CLOUDWATCH LOG GROUP - Stores container logs
         # ============================================================
         # Logs are retained for 1 week by default
         # Change retention period as needed for compliance/debugging
         log_group = logs.LogGroup(
             self, "LogGroup",
-            log_group_name="/ecs/java-processor",
+            log_group_name="/aws/batch/java-processor",
             removal_policy=RemovalPolicy.RETAIN,  # Keep logs when stack is deleted
             retention=logs.RetentionDays.ONE_WEEK  # Adjust retention as needed
         )
 
         # ============================================================
-        # CONTAINER DEFINITION - Specifies the Docker container
+        # BATCH COMPUTE ENVIRONMENT - Defines compute resources
         # ============================================================
-        # This is where the Synthea JAR runs
-        # Environment variables are passed to the container at runtime
-        container = task_definition.add_container(
-            "JavaProcessorContainer",
-            container_name="java-processor",
-            # Image must be pushed to ECR before running tasks
-            image=ecs.ContainerImage.from_ecr_repository(repository, "latest"),
-            # Send container stdout/stderr to CloudWatch
-            logging=ecs.LogDrivers.aws_logs(
-                stream_prefix="ecs",
-                log_group=log_group
-            ),
-            # Environment variables available to the container
-            # These are read by entrypoint.sh to configure S3 upload
-            environment={
-                "S3_BUCKET": output_bucket.bucket_name,  # Where to upload output
-                "S3_PREFIX": "output"  # S3 key prefix for organization
-            }
+        # Uses Fargate for serverless compute (no EC2 instances to manage)
+        # Batch automatically scales based on job queue demand
+        compute_environment = batch.FargateComputeEnvironment(
+            self, "ComputeEnvironment",
+            compute_environment_name="java-processor-compute-env",
+            vpc=vpc,
+            vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PUBLIC),
+            security_groups=[security_group]
         )
 
         # ============================================================
-        # SECURITY GROUP - Network firewall rules
+        # BATCH JOB QUEUE - Queue for submitting jobs
         # ============================================================
-        # Allows all outbound traffic (needed for S3 and ECR access)
-        # No inbound rules needed since this is a batch processing task
-        security_group = ec2.SecurityGroup(
-            self, "TaskSecurityGroup",
-            vpc=vpc,
-            description="Security group for Java processor ECS tasks",
-            allow_all_outbound=True  # Required for S3, ECR, and CloudWatch access
+        # Jobs submitted to this queue will run on the compute environment
+        # Priority determines which queue gets resources first (higher = first)
+        job_queue = batch.JobQueue(
+            self, "JobQueue",
+            job_queue_name="java-processor-queue",
+            priority=1,
+            compute_environments=[
+                batch.JobQueueComputeEnvironment(
+                    compute_environment=compute_environment,
+                    order=1
+                )
+            ]
+        )
+
+        # ============================================================
+        # BATCH JOB DEFINITION - Blueprint for running the container
+        # ============================================================
+        # Defines the Docker image, CPU, memory, and environment variables
+        # Adjust cpu and memory based on Synthea workload requirements
+        job_definition = batch.EcsJobDefinition(
+            self, "JobDefinition",
+            job_definition_name="java-processor-job",
+            container=batch.EcsFargateContainerDefinition(
+                self, "Container",
+                image=ecs.ContainerImage.from_ecr_repository(repository, "latest"),
+                cpu=1024,  # 1 vCPU (0.25, 0.5, 1, 2, 4, 8, 16)
+                memory=2048,  # 2 GB RAM (512 to 30720 in increments)
+                job_role=job_role,  # Role for container to access AWS services
+                execution_role=execution_role,  # Role for Batch to manage the job
+                log_configuration=ecs.LogDriver.aws_logs(
+                    stream_prefix="batch",
+                    log_group=log_group
+                ),
+                environment={
+                    "S3_BUCKET": output_bucket.bucket_name,  # Where to upload output
+                    "S3_PREFIX": "output"  # S3 key prefix for organization
+                }
+            )
         )
 
         # ============================================================
         # STACK OUTPUTS - Make resources accessible to other code
         # ============================================================
-        # These can be referenced by run-task.sh and trigger-via-api.py
+        # These can be referenced by run-job.sh and trigger-via-api.py
         self.output_bucket = output_bucket
-        self.cluster = cluster
-        self.task_definition = task_definition
+        self.job_queue = job_queue
+        self.job_definition = job_definition
         self.repository = repository
         self.security_group = security_group
+        
+        # Output key resource names for easy reference
+        CfnOutput(self, "JobQueueName", value=job_queue.job_queue_name)
+        CfnOutput(self, "JobDefinitionName", value=job_definition.job_definition_name)
+        CfnOutput(self, "RepositoryUri", value=repository.repository_uri)
+        CfnOutput(self, "BucketName", value=output_bucket.bucket_name)

@@ -47,7 +47,7 @@ S3_BUCKET_NAME=my-existing-bucket ./deploy.sh
 **Important:** When using an existing bucket:
 - The bucket must already exist
 - The bucket must be in the same region as your deployment
-- The CDK stack will grant the ECS task role read/write permissions to this bucket
+- The CDK stack will grant the Batch job role read/write permissions to this bucket
 
 ### Option 3: Use Existing Bucket via CDK Context
 
@@ -95,22 +95,27 @@ This approach is best for:
 ## VPC Requirements
 
 Your VPC must have:
-- At least one subnet with internet access (for Fargate tasks)
-- NAT Gateway or public subnet (for pulling ECR images and accessing S3)
+- At least one public subnet with internet access (for Fargate Batch jobs)
+- Internet Gateway for public subnet connectivity
 - DNS resolution enabled
 - DNS hostnames enabled
 
+Note: AWS Batch with Fargate uses public subnets by default. For private subnets, you'll need NAT Gateway and VPC endpoints.
+
 ## Troubleshooting
 
-### Task fails to start
+### Job fails to start
 - Check that your VPC has internet connectivity
 - Verify security group allows outbound traffic
 - Ensure subnets have available IP addresses
+- Check Batch compute environment status in AWS Console
 
 ### Cannot pull ECR image
-- Verify VPC has route to internet (NAT Gateway or Internet Gateway)
+- Verify VPC has route to internet (Internet Gateway for public subnets)
 - Check VPC endpoints for ECR if using private subnets
+- Ensure execution role has ECR permissions
 
 ### Cannot upload to S3
-- Verify task role has S3 permissions
+- Verify job role has S3 permissions
 - Check VPC has route to S3 (internet or S3 VPC endpoint)
+- Review CloudWatch logs for specific error messages

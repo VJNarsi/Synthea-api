@@ -1,4 +1,5 @@
 {
+  "_comment": "LEGACY FILE - This trust policy is no longer used. IAM roles are now managed by CDK (see cdk/stacks/batch_java_processor_stack.py). Kept for reference only.",
   "Version": "2012-10-17",
   "Statement": [
     {
