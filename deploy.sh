@@ -20,6 +20,11 @@
 
 set -e  # Exit on any error
 
+# Disable SSL verification for corporate proxies
+export AWS_CA_BUNDLE=""
+export REQUESTS_CA_BUNDLE=""
+export CURL_CA_BUNDLE=""
+
 echo "=== AWS Batch Java Processor Deployment ==="
 
 # =============================================================================
@@ -80,37 +85,82 @@ cdk deploy $CDK_ARGS
 cd ..
 
 # =============================================================================
-# STEP 2: Build Docker Image
+# STEP 2: Upload source files to S3
 # =============================================================================
-# Packages the Synthea JAR, entrypoint script, and dependencies into a container
-# The JAR is downloaded from a remote URL during the build process
 echo ""
-echo "Step 2: Building Docker image..."
+echo "Step 2: Uploading source files to S3..."
 
-# Optional: Set custom JAR URL via environment variable
-# Default: Downloads from Synthea's GitHub releases
-JAR_URL=${JAR_URL:-https://github.com/synthetichealth/synthea/releases/download/master-branch-latest/synthea-with-dependencies.jar}
+# Get build bucket name from CDK outputs
+BUILD_BUCKET=$(aws cloudformation describe-stacks \
+  --stack-name BatchJavaProcessorStack \
+  --query "Stacks[0].Outputs[?OutputKey=='BuildBucketName'].OutputValue" \
+  --output text \
+  --region $REGION)
 
-echo "JAR will be downloaded from: $JAR_URL"
-docker build --build-arg JAR_URL="$JAR_URL" -t java-processor .
+if [ -z "$BUILD_BUCKET" ]; then
+  echo "Error: Could not find build bucket name"
+  exit 1
+fi
+
+echo "Build bucket: $BUILD_BUCKET"
+
+# Create zip file with Dockerfile, entrypoint.sh, and buildspec.yml
+zip -r source.zip Dockerfile entrypoint.sh buildspec.yml
+
+# Upload to S3
+aws s3 cp source.zip s3://$BUILD_BUCKET/source.zip --region $REGION
+
+echo "Source files uploaded"
 
 # =============================================================================
-# STEP 3: Push Image to ECR
+# STEP 3: Trigger CodeBuild to Build and Push Docker Image
 # =============================================================================
-# Uploads the Docker image to AWS Elastic Container Registry
-echo "Step 3: Pushing to ECR..."
+echo ""
+echo "Step 3: Triggering CodeBuild to build and push Docker image..."
 
-# Authenticate Docker with ECR
-aws ecr get-login-password --region $REGION | \
-  docker login --username AWS --password-stdin \
-  $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
+# Get CodeBuild project name from CDK outputs
+CODEBUILD_PROJECT=$(aws cloudformation describe-stacks \
+  --stack-name BatchJavaProcessorStack \
+  --query "Stacks[0].Outputs[?OutputKey=='CodeBuildProjectName'].OutputValue" \
+  --output text \
+  --region $REGION)
 
-# Tag image with ECR repository URL
-docker tag java-processor:latest \
-  $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/java-processor:latest
+if [ -z "$CODEBUILD_PROJECT" ]; then
+  echo "Error: Could not find CodeBuild project name"
+  exit 1
+fi
 
-# Push to ECR
-docker push $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/java-processor:latest
+echo "Starting CodeBuild project: $CODEBUILD_PROJECT"
+
+# Start the build
+BUILD_ID=$(aws codebuild start-build \
+  --project-name $CODEBUILD_PROJECT \
+  --region $REGION \
+  --query 'build.id' \
+  --output text)
+
+echo "Build started: $BUILD_ID"
+echo "Waiting for build to complete..."
+
+# Poll build status
+while true; do
+  BUILD_STATUS=$(aws codebuild batch-get-builds \
+    --ids $BUILD_ID \
+    --region $REGION \
+    --query 'builds[0].buildStatus' \
+    --output text)
+  
+  if [ "$BUILD_STATUS" = "SUCCEEDED" ]; then
+    echo "Build completed successfully"
+    break
+  elif [ "$BUILD_STATUS" = "FAILED" ] || [ "$BUILD_STATUS" = "FAULT" ] || [ "$BUILD_STATUS" = "TIMED_OUT" ] || [ "$BUILD_STATUS" = "STOPPED" ]; then
+    echo "Build failed with status: $BUILD_STATUS"
+    exit 1
+  fi
+  
+  echo "Build status: $BUILD_STATUS - waiting..."
+  sleep 10
+done
 
 # =============================================================================
 # Deployment Complete
@@ -133,4 +183,5 @@ else
     echo "  - S3 Bucket: synthea-output-$ACCOUNT_ID (new)"
 fi
 echo "  - ECR Repository: java-processor"
+echo "  - CodeBuild Project: $CODEBUILD_PROJECT"
 echo "  - CloudWatch Logs: /aws/batch/java-processor"

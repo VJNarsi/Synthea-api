@@ -8,13 +8,11 @@
 # Run:   docker run java-processor -p 100
 # =============================================================================
 
-# Use Amazon Corretto 17 (AWS-optimized OpenJDK distribution)
-# Alpine variant for smaller image size
-FROM amazoncorretto:17-alpine
+# Use Amazon Corretto 17 from AWS ECR Public (no rate limits)
+FROM public.ecr.aws/amazoncorretto/amazoncorretto:17-al2023
 
 # Install AWS CLI and curl for S3 operations and downloading JAR
-# Required for uploading generated files to S3 and downloading JAR from remote URL
-RUN apk add --no-cache aws-cli curl
+RUN yum install -y aws-cli unzip && yum clean all
 
 # Set working directory for the application
 WORKDIR /app
@@ -23,9 +21,7 @@ WORKDIR /app
 # Set JAR_URL as a build argument to specify the download location
 # Example: docker build --build-arg JAR_URL=https://example.com/synthea.jar -t java-processor .
 ARG JAR_URL=https://github.com/synthetichealth/synthea/releases/download/master-branch-latest/synthea-with-dependencies.jar
-RUN echo "Downloading JAR from: $JAR_URL" && \
-    curl -L -o /app/synthea-with-dependencies.jar "$JAR_URL" && \
-    echo "JAR downloaded successfully"
+RUN curl -L -o /app/synthea-with-dependencies.jar "$JAR_URL"
 
 # Create output directory where Synthea will write generated files
 # This directory is synced to S3 after processing

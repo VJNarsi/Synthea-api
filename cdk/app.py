@@ -36,6 +36,10 @@ BatchJavaProcessorStack(
     "BatchJavaProcessorStack",
     vpc_id=vpc_id,
     s3_bucket_name=s3_bucket_name,
+    env=cdk.Environment(
+        account=os.environ.get('CDK_DEFAULT_ACCOUNT'),
+        region=os.environ.get('CDK_DEFAULT_REGION')
+    ),
     description="AWS Batch job for running Synthea Java application with S3 output"
 )
 

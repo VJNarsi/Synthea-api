@@ -1,12 +1,13 @@
 from aws_cdk import (
     Stack,
+    Size,
     aws_ec2 as ec2,
     aws_batch as batch,
     aws_ecs as ecs,
     aws_ecr as ecr,
     aws_iam as iam,
     aws_s3 as s3,
-    aws_logs as logs,
+    aws_codebuild as codebuild,
     RemovalPolicy,
     CfnOutput
 )
@@ -77,13 +78,70 @@ class BatchJavaProcessorStack(Stack):
         # ============================================================
         # ECR REPOSITORY - Stores Docker images
         # ============================================================
-        # RETAIN policy keeps images even if stack is deleted
-        # Push your Docker image here after deployment
         repository = ecr.Repository(
             self, "JavaProcessorRepo",
             repository_name="java-processor",
-            removal_policy=RemovalPolicy.RETAIN  # Keep images when stack is deleted
+            removal_policy=RemovalPolicy.RETAIN
         )
+
+        # ============================================================
+        # S3 BUCKET FOR BUILD ARTIFACTS
+        # ============================================================
+        build_bucket = s3.Bucket(
+            self, "BuildBucket",
+            bucket_name=f"synthea-build-{self.account}",
+            removal_policy=RemovalPolicy.DESTROY,
+            auto_delete_objects=True
+        )
+
+        # ============================================================
+        # CODEBUILD PROJECT - Builds and pushes Docker image
+        # ============================================================
+        codebuild_project = codebuild.Project(
+            self, "DockerBuildProject",
+            project_name="synthea-docker-build",
+            environment=codebuild.BuildEnvironment(
+                build_image=codebuild.LinuxBuildImage.STANDARD_7_0,
+                privileged=True
+            ),
+            environment_variables={
+                "ECR_REPO_URI": codebuild.BuildEnvironmentVariable(value=repository.repository_uri),
+                "AWS_DEFAULT_REGION": codebuild.BuildEnvironmentVariable(value=self.region),
+                "AWS_ACCOUNT_ID": codebuild.BuildEnvironmentVariable(value=self.account),
+                "BUILD_BUCKET": codebuild.BuildEnvironmentVariable(value=build_bucket.bucket_name)
+            },
+            build_spec=codebuild.BuildSpec.from_object({
+                "version": "0.2",
+                "phases": {
+                    "pre_build": {
+                        "commands": [
+                            "echo Downloading source from S3...",
+                            "aws s3 cp s3://$BUILD_BUCKET/source.zip source.zip",
+                            "unzip source.zip",
+                            "echo Logging in to Amazon ECR...",
+                            "aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com"
+                        ]
+                    },
+                    "build": {
+                        "commands": [
+                            "echo Build started on `date`",
+                            "echo Building the Docker image...",
+                            "docker build -t $ECR_REPO_URI:latest ."
+                        ]
+                    },
+                    "post_build": {
+                        "commands": [
+                            "echo Build completed on `date`",
+                            "echo Pushing the Docker image...",
+                            "docker push $ECR_REPO_URI:latest"
+                        ]
+                    }
+                }
+            })
+        )
+        
+        repository.grant_pull_push(codebuild_project)
+        build_bucket.grant_read(codebuild_project)
 
         # ============================================================
         # SECURITY GROUP - Network firewall rules
@@ -126,16 +184,25 @@ class BatchJavaProcessorStack(Stack):
             ]
         )
 
+
+
         # ============================================================
-        # CLOUDWATCH LOG GROUP - Stores container logs
+        # VPC ENDPOINTS - Allow private access to AWS services
         # ============================================================
-        # Logs are retained for 1 week by default
-        # Change retention period as needed for compliance/debugging
-        log_group = logs.LogGroup(
-            self, "LogGroup",
-            log_group_name="/aws/batch/java-processor",
-            removal_policy=RemovalPolicy.RETAIN,  # Keep logs when stack is deleted
-            retention=logs.RetentionDays.ONE_WEEK  # Adjust retention as needed
+        vpc.add_interface_endpoint(
+            "EcrDockerEndpoint",
+            service=ec2.InterfaceVpcEndpointAwsService.ECR_DOCKER,
+            security_groups=[security_group]
+        )
+        vpc.add_interface_endpoint(
+            "EcrApiEndpoint",
+            service=ec2.InterfaceVpcEndpointAwsService.ECR,
+            security_groups=[security_group]
+        )
+        vpc.add_interface_endpoint(
+            "CloudWatchLogsEndpoint",
+            service=ec2.InterfaceVpcEndpointAwsService.CLOUDWATCH_LOGS,
+            security_groups=[security_group]
         )
 
         # ============================================================
@@ -161,7 +228,7 @@ class BatchJavaProcessorStack(Stack):
             job_queue_name="java-processor-queue",
             priority=1,
             compute_environments=[
-                batch.JobQueueComputeEnvironment(
+                batch.OrderedComputeEnvironment(
                     compute_environment=compute_environment,
                     order=1
                 )
@@ -179,17 +246,13 @@ class BatchJavaProcessorStack(Stack):
             container=batch.EcsFargateContainerDefinition(
                 self, "Container",
                 image=ecs.ContainerImage.from_ecr_repository(repository, "latest"),
-                cpu=1024,  # 1 vCPU (0.25, 0.5, 1, 2, 4, 8, 16)
-                memory=2048,  # 2 GB RAM (512 to 30720 in increments)
-                job_role=job_role,  # Role for container to access AWS services
-                execution_role=execution_role,  # Role for Batch to manage the job
-                log_configuration=ecs.LogDriver.aws_logs(
-                    stream_prefix="batch",
-                    log_group=log_group
-                ),
+                cpu=1,
+                memory=Size.gibibytes(2),
+                job_role=job_role,
+                execution_role=execution_role,
                 environment={
-                    "S3_BUCKET": output_bucket.bucket_name,  # Where to upload output
-                    "S3_PREFIX": "output"  # S3 key prefix for organization
+                    "S3_BUCKET": output_bucket.bucket_name,
+                    "S3_PREFIX": "output"
                 }
             )
         )
@@ -209,3 +272,5 @@ class BatchJavaProcessorStack(Stack):
         CfnOutput(self, "JobDefinitionName", value=job_definition.job_definition_name)
         CfnOutput(self, "RepositoryUri", value=repository.repository_uri)
         CfnOutput(self, "BucketName", value=output_bucket.bucket_name)
+        CfnOutput(self, "CodeBuildProjectName", value=codebuild_project.project_name)
+        CfnOutput(self, "BuildBucketName", value=build_bucket.bucket_name)

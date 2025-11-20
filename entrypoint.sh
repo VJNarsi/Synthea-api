@@ -24,7 +24,7 @@ echo "Starting Java application with parameters: $@"
 # =============================================================================
 # Execute the Synthea JAR with all provided command-line arguments
 # The application will generate output files in /app/output directory
-java -jar /app/synthea-with-dependencies.jar "$@"
+java -jar /app/synthea-with-dependencies.jar $@
 
 # =============================================================================
 # STEP 2: Validate S3 Configuration
